@@ -27,24 +27,91 @@ import com.example.ui.components.*
 import com.example.ui.screens.*
 import com.example.ui.strings.Strings
 import com.example.ui.theme.XLinkTheme
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.lifecycleScope
+import com.example.ui.auth.attemptAutoSignIn
+import com.example.ui.auth.signOutUser
+import com.example.ui.screens.GoogleSignInScreen
 import com.example.ui.viewmodel.AgentTab
 import com.example.ui.viewmodel.CustomerTab
 import com.example.ui.viewmodel.XLinkViewModel
+import com.example.util.configureAppCheck
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Step 1: Configure App Check with launch intent before any UI or Firebase operations
+        configureAppCheck(this, intent)
         enableEdgeToEdge()
+
+        val credentialManager = CredentialManager.create(this)
+        lifecycleScope.launch {
+            attemptAutoSignIn(
+                context = this@MainActivity,
+                credentialManager = credentialManager,
+                onAuthSuccess = {},
+                onUnauthenticated = {},
+                scope = lifecycleScope
+            )
+        }
+
         setContent {
             XLinkTheme {
-                XLinkApp()
+                AppContent()
             }
         }
     }
 }
 
 @Composable
+fun AppContent() {
+    var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+
+    DisposableEffect(Unit) {
+        val listener = FirebaseAuth.AuthStateListener { auth ->
+            currentUser = auth.currentUser
+        }
+        Firebase.auth.addAuthStateListener(listener)
+        onDispose {
+            Firebase.auth.removeAuthStateListener(listener)
+        }
+    }
+
+    if (currentUser == null) {
+        GoogleSignInScreen(
+            onAuthSuccess = {
+                currentUser = Firebase.auth.currentUser
+            }
+        )
+    } else {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val coroutineScope = rememberCoroutineScope()
+        val credentialManager = remember { CredentialManager.create(context) }
+
+        XLinkApp(
+            userEmail = currentUser?.email ?: "",
+            onSignOut = {
+                signOutUser(
+                    context = context,
+                    credentialManager = credentialManager,
+                    onSignOutComplete = {
+                        currentUser = null
+                    },
+                    scope = coroutineScope
+                )
+            }
+        )
+    }
+}
+
+@Composable
 fun XLinkApp(
+    userEmail: String = "",
+    onSignOut: () -> Unit = {},
     viewModel: XLinkViewModel = viewModel()
 ) {
     val language by viewModel.language.collectAsStateWithLifecycle()
@@ -66,9 +133,16 @@ fun XLinkApp(
     val selectedInvoice by viewModel.selectedInvoice.collectAsStateWithLifecycle()
     val isAgentCollectModalVisible by viewModel.isAgentCollectModalVisible.collectAsStateWithLifecycle()
     val collectTargetCustomer by viewModel.collectTargetCustomer.collectAsStateWithLifecycle()
+    val aiChatState by viewModel.aiChatState.collectAsStateWithLifecycle()
+    val aiMessages by viewModel.aiMessages.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        viewModel.initSyncService(context.applicationContext)
+    }
+
+    val roomFirestoreSyncState by viewModel.roomFirestoreSyncState.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncToastMessage by viewModel.syncToastMessage.collectAsStateWithLifecycle()
-
     val unreadNotifCount = notifications.count { !it.isRead }
 
     Scaffold(
@@ -88,7 +162,9 @@ fun XLinkApp(
                     } else {
                         viewModel.setAgentTab(AgentTab.DASHBOARD)
                     }
-                }
+                },
+                userEmail = userEmail,
+                onSignOut = onSignOut
             )
         },
         bottomBar = {
@@ -112,6 +188,13 @@ fun XLinkApp(
                         icon = { Icon(imageVector = Icons.Default.ReceiptLong, contentDescription = null) },
                         label = { Text(Strings.get(language, "nav_bills"), fontSize = 11.sp) },
                         modifier = Modifier.testTag("nav_bills_tab")
+                    )
+                    NavigationBarItem(
+                        selected = customerTab == CustomerTab.AI_SUPPORT,
+                        onClick = { viewModel.setCustomerTab(CustomerTab.AI_SUPPORT) },
+                        icon = { Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null) },
+                        label = { Text(Strings.get(language, "nav_ai_support"), fontSize = 11.sp) },
+                        modifier = Modifier.testTag("nav_ai_support_tab")
                     )
                     NavigationBarItem(
                         selected = customerTab == CustomerTab.NEW_CONNECTION,
@@ -178,7 +261,8 @@ fun XLinkApp(
                             language = language,
                             onPayBillClick = { viewModel.openPaymentModal() },
                             onViewBill = { viewModel.openInvoice(it) },
-                            onNavigateToNewConnection = { viewModel.setCustomerTab(CustomerTab.NEW_CONNECTION) }
+                            onNavigateToNewConnection = { viewModel.setCustomerTab(CustomerTab.NEW_CONNECTION) },
+                            onOpenAiSupport = { viewModel.setCustomerTab(CustomerTab.AI_SUPPORT) }
                         )
                     }
                     CustomerTab.BILLS -> {
@@ -187,6 +271,16 @@ fun XLinkApp(
                             language = language,
                             onPayBillClick = { viewModel.openPaymentModal() },
                             onViewBill = { viewModel.openInvoice(it) }
+                        )
+                    }
+                    CustomerTab.AI_SUPPORT -> {
+                        AiSupportScreen(
+                            customer = currentCustomer,
+                            language = language,
+                            messages = aiMessages,
+                            chatState = aiChatState,
+                            onSendMessage = { viewModel.sendAiQuery(it) },
+                            onAnalyzeHealth = { viewModel.analyzeConnectionHealth() }
                         )
                     }
                     CustomerTab.HEALTH -> {
@@ -247,7 +341,9 @@ fun XLinkApp(
                             isSyncing = isSyncing,
                             language = language,
                             onSyncNow = { url, key, token -> viewModel.syncWebBillingApi(url, key, token) },
-                            onTestPing = { url, key, token -> viewModel.testApiPing(url, key, token) }
+                            onTestPing = { url, key, token -> viewModel.testApiPing(url, key, token) },
+                            roomSyncState = roomFirestoreSyncState,
+                            onTriggerRoomSync = { viewModel.triggerRoomFirestoreSync() }
                         )
                     }
                 }

@@ -36,6 +36,8 @@ fun XLinkHeaderBar(
     onToggleLanguage: () -> Unit,
     onRoleSelected: (UserRole) -> Unit,
     onOpenNotifications: () -> Unit,
+    userEmail: String = "",
+    onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -145,6 +147,21 @@ fun XLinkHeaderBar(
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    IconButton(
+                        onClick = onSignOut,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("sign_out_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Logout,
+                            contentDescription = "Sign Out",
+                            tint = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
             }

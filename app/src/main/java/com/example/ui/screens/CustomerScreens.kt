@@ -36,6 +36,7 @@ fun CustomerDashboardScreen(
     onPayBillClick: () -> Unit,
     onViewBill: (Bill) -> Unit,
     onNavigateToNewConnection: () -> Unit,
+    onOpenAiSupport: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val unpaidBill = bills.firstOrNull { it.customerId == customer.id && !it.isPaid }
@@ -256,6 +257,78 @@ fun CustomerDashboardScreen(
                 uploadMbps = customer.uploadSpeedMbps,
                 language = language
             )
+        }
+
+        // Gemini AI Network Diagnostics Banner
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenAiSupport() }
+                    .testTag("ai_assistant_banner"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF0C4A6E), Color(0xFF0369A1))
+                            )
+                        )
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF38BDF8)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color(0xFF082F49),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (language == Language.BANGLA) "Gemini AI অপটিক্যাল সিগন্যাল বিশ্লেষণ" else "Gemini AI Signal & Health",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = if (language == Language.BANGLA) "লাইভ পিং, ফাইবার ড্রপ ও স্পিড টিপস পান" else "Instant fiber health check & Wi-Fi optimizer",
+                                fontSize = 11.sp,
+                                color = Color(0xFFBAE6FD)
+                            )
+                        }
+                        Button(
+                            onClick = onOpenAiSupport,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D2FF)),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text(
+                                text = if (language == Language.BANGLA) "বিশ্লেষণ" else "Analyze",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF082F49)
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // Recent Invoices section

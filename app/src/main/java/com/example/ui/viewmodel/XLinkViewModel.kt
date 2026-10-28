@@ -11,9 +11,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+import com.example.ui.ai.AiChatState
+import com.example.ui.ai.ChatMessage
+import com.example.ui.ai.XLinkAiService
+
 enum class CustomerTab {
     OVERVIEW,
     BILLS,
+    AI_SUPPORT,
     HEALTH,
     NEW_CONNECTION,
     NOTIFICATIONS
@@ -28,7 +33,8 @@ enum class AgentTab {
 }
 
 class XLinkViewModel(
-    private val repository: XLinkRepository = XLinkRepository()
+    private val repository: XLinkRepository = XLinkRepository(),
+    private val aiService: XLinkAiService = XLinkAiService()
 ) : ViewModel() {
 
     // Localization & Mode
@@ -42,6 +48,9 @@ class XLinkViewModel(
     private val _customerTab = MutableStateFlow(CustomerTab.OVERVIEW)
     val customerTab: StateFlow<CustomerTab> = _customerTab.asStateFlow()
 
+    val aiChatState = aiService.chatState
+    val aiMessages = aiService.messages
+
     private val _agentTab = MutableStateFlow(AgentTab.DASHBOARD)
     val agentTab: StateFlow<AgentTab> = _agentTab.asStateFlow()
 
@@ -54,6 +63,63 @@ class XLinkViewModel(
     val syncLogs = repository.syncLogs
     val apiConfig = repository.apiConfig
     val availablePackages = repository.availablePackages
+
+    // Room-to-Firestore Synchronization Service
+    private var syncService: com.example.data.sync.RoomFirestoreSyncService? = null
+    private val _roomBillingRecords = MutableStateFlow<List<com.example.data.local.RoomBillingRecord>>(emptyList())
+    val roomBillingRecords: StateFlow<List<com.example.data.local.RoomBillingRecord>> = _roomBillingRecords.asStateFlow()
+
+    private val _roomFirestoreSyncState = MutableStateFlow(com.example.data.sync.SyncStatusState())
+    val roomFirestoreSyncState: StateFlow<com.example.data.sync.SyncStatusState> = _roomFirestoreSyncState.asStateFlow()
+
+    fun initSyncService(context: android.content.Context) {
+        if (syncService != null) return
+        val db = com.example.data.local.XLinkDatabase.getDatabase(context)
+        val service = com.example.data.sync.RoomFirestoreSyncService(context, db.billingRecordDao())
+        syncService = service
+
+        viewModelScope.launch {
+            // Seed initial records into Room from repository bills
+            val initialRoomRecords = bills.value.map { bill ->
+                com.example.data.local.RoomBillingRecord(
+                    id = bill.invoiceNumber,
+                    customerId = bill.customerId,
+                    customerName = bill.customerName,
+                    customerCode = currentCustomer.value.customerCode,
+                    amount = bill.amount,
+                    billingMonth = bill.billingMonth,
+                    dueDate = bill.dueDate,
+                    isPaid = bill.isPaid,
+                    paidDate = bill.paidDate,
+                    paymentMethod = bill.paymentMethod?.name,
+                    transactionId = bill.transactionId,
+                    syncStatus = if (bill.isPaid) "SYNCED" else "PENDING_UPLOAD"
+                )
+            }
+            service.initializeAndSeed(initialRoomRecords)
+
+            // Collect local Room records to keep UI updated
+            db.billingRecordDao().getAllBillingRecords().collect { records ->
+                _roomBillingRecords.value = records
+            }
+        }
+
+        // Collect sync state
+        viewModelScope.launch {
+            service.syncState.collect { state ->
+                _roomFirestoreSyncState.value = state
+            }
+        }
+
+        // Manage real-time Firestore sync lifecycle with Firebase Auth session
+        service.attachAuthLifecycle(viewModelScope)
+    }
+
+    fun triggerRoomFirestoreSync() {
+        viewModelScope.launch {
+            syncService?.performFullSync()
+        }
+    }
 
     // UI States & Modals
     private val _isPaymentModalVisible = MutableStateFlow(false)
@@ -133,8 +199,30 @@ class XLinkViewModel(
     // Business Actions
     fun processCustomerPayment(method: PaymentMethod, walletNumber: String) {
         repository.payCurrentBill(method, walletNumber)
+        val cust = currentCustomer.value
+        val currentPaidBill = bills.value.firstOrNull { it.customerId == cust.id && it.isPaid }
+        if (currentPaidBill != null) {
+            viewModelScope.launch {
+                syncService?.saveBillingRecord(
+                    com.example.data.local.RoomBillingRecord(
+                        id = currentPaidBill.invoiceNumber,
+                        customerId = cust.id,
+                        customerName = cust.name,
+                        customerCode = cust.customerCode,
+                        amount = currentPaidBill.amount,
+                        billingMonth = currentPaidBill.billingMonth,
+                        dueDate = currentPaidBill.dueDate,
+                        isPaid = true,
+                        paidDate = currentPaidBill.paidDate,
+                        paymentMethod = method.name,
+                        transactionId = currentPaidBill.transactionId,
+                        syncStatus = "PENDING_UPLOAD"
+                    )
+                )
+            }
+        }
         closePaymentModal()
-        _syncToastMessage.value = "Payment confirmed! Internet line renewed."
+        _syncToastMessage.value = "Payment confirmed! Synced to Room & Firestore."
         viewModelScope.launch {
             delay(3500)
             _syncToastMessage.value = null
@@ -218,5 +306,17 @@ class XLinkViewModel(
 
     fun selectCustomer(customer: Customer) {
         repository.selectCustomer(customer)
+    }
+
+    fun sendAiQuery(query: String) {
+        viewModelScope.launch {
+            aiService.sendUserQuery(query, currentCustomer.value, language.value)
+        }
+    }
+
+    fun analyzeConnectionHealth() {
+        viewModelScope.launch {
+            aiService.analyzeConnectionTelemetry(currentCustomer.value, language.value)
+        }
     }
 }

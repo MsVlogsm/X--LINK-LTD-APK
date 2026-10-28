@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "XLinkBillingSchema",
+  "entities": {
+    "billing_records": {
+      "type": "object",
+      "description": "Customer billing records synchronized between local Room database and cloud Firestore",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerCode": { "type": "string" },
+        "amount": { "type": "number" },
+        "billingMonth": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "isPaid": { "type": "boolean" },
+        "paidDate": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "syncStatus": { "type": "string" },
+        "lastSyncedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customerId", "amount", "billingMonth", "dueDate", "isPaid"]
+    }
+  }
+}

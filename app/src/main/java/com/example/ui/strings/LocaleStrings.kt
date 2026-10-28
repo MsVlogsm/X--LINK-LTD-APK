@@ -21,6 +21,7 @@ object Strings {
         // Navigation
         "nav_overview" to "Overview",
         "nav_bills" to "Bills & Payments",
+        "nav_ai_support" to "Gemini AI",
         "nav_health" to "Network Health",
         "nav_new_conn" to "New Line",
         "nav_alerts" to "Alerts",
@@ -120,6 +121,7 @@ object Strings {
         // Navigation
         "nav_overview" to "হোম",
         "nav_bills" to "বিল ও পেমেন্ট",
+        "nav_ai_support" to "AI সাপোর্ট",
         "nav_health" to "নেটওয়ার্ক সিগন্যাল",
         "nav_new_conn" to "নতুন সংযোগ",
         "nav_alerts" to "নোটিফিকেশন",
